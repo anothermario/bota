@@ -1,0 +1,59 @@
+name: Finetune & Backtest
+
+# Runs every 4 hours, and can be triggered manually from the Actions tab.
+on:
+  schedule:
+    - cron: "0 */4 * * *"   # 00:00, 04:00, 08:00 ... UTC
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: "Trading pair"
+        default: "BTCUSDT"
+      interval:
+        description: "Timeframe (1h, 4h, 1d ...)"
+        default: "4h"
+      limit:
+        description: "How many bars to fetch"
+        default: "1500"
+
+# Allow the workflow to push the results commit back to the repo.
+permissions:
+  contents: write
+
+concurrency:
+  group: finetune
+  cancel-in-progress: false
+
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pandas numpy requests matplotlib
+
+      - name: Run finetune cycle
+        run: |
+          python finetune/run_cycle.py \
+            --symbol "${{ github.event.inputs.symbol || 'BTCUSDT' }}" \
+            --interval "${{ github.event.inputs.interval || '4h' }}" \
+            --limit "${{ github.event.inputs.limit || '1500' }}"
+
+      - name: Commit results
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add results data finetune/params.json
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore(finetune): cycle $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push
+          fi
