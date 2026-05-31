@@ -1,0 +1,199 @@
+//@version=6
+// =============================================================================
+//  Adaptive KAMA Trend-Follower  —  Pine Script v6  (non-repainting)
+// -----------------------------------------------------------------------------
+//  Design goals:
+//    * Single-timeframe, native OHLCV only. No request.security(), no libraries,
+//      no external data, no lookahead, no future candles.
+//    * Self-adapting trend engine (Kaufman Adaptive Moving Average) that speeds
+//      up in trends and slows down in chop -> adapts bar-by-bar with no retuning.
+//    * Regime filter (Efficiency Ratio + optional ADX) so it sits out the chop.
+//    * Donchian breakout entry confirmed on the prior bar (no lookahead).
+//    * ATR "chandelier" trailing stop that only ratchets in your favour.
+//    * Volatility-based position sizing (risk % of equity per trade).
+//    * 0.04% commission per fill baked into the backtest.
+//    * On-chart dashboard + live trade-history table.
+// =============================================================================
+
+strategy(
+     title                   = "Adaptive KAMA Trend-Follower [v6]",
+     shorttitle              = "KAMA-TF",
+     overlay                 = true,
+     initial_capital         = 10000,
+     currency                = currency.USD,
+     default_qty_type        = strategy.percent_of_equity,
+     default_qty_value        = 100,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.04,
+     pyramiding              = 0,
+     calc_on_every_tick      = false,
+     process_orders_on_close = false,
+     slippage                = 0,
+     max_bars_back           = 2000)
+
+// ─── Inputs ──────────────────────────────────────────────────────────────────
+grpTrend = "Trend Engine (KAMA)"
+erLen    = input.int(20, "Efficiency Ratio Length", minval = 2,  group = grpTrend)
+kamaFast = input.int(2,  "KAMA Fast Length",        minval = 1,  group = grpTrend)
+kamaSlow = input.int(30, "KAMA Slow Length",        minval = 2,  group = grpTrend)
+
+grpRegime = "Regime Filter (avoid chop)"
+erThresh  = input.float(0.30, "Min Efficiency Ratio", minval = 0.0, maxval = 1.0, step = 0.01, group = grpRegime)
+useAdx    = input.bool(true,  "Use ADX Filter",                                              group = grpRegime)
+adxLen    = input.int(14,     "ADX / DI Length",      minval = 1,                            group = grpRegime)
+adxThresh = input.float(20.0, "Min ADX",              minval = 0.0,                          group = grpRegime)
+
+grpEntry = "Entry (Donchian Breakout)"
+donLen   = input.int(20, "Breakout Lookback", minval = 2, group = grpEntry)
+
+grpRisk    = "Risk & Exits"
+atrLen     = input.int(14,    "ATR Length",                 minval = 1,                          group = grpRisk)
+atrMult    = input.float(3.0, "Chandelier ATR Multiple",    minval = 0.5, step = 0.1,            group = grpRisk)
+chandLen   = input.int(22,    "Chandelier Lookback",        minval = 2,                          group = grpRisk)
+riskPct    = input.float(1.0, "Risk % of Equity per Trade", minval = 0.1, maxval = 10.0, step = 0.1, group = grpRisk)
+allowShort = input.bool(true, "Allow Shorts",                                                    group = grpRisk)
+
+grpUI    = "Dashboard"
+showDash = input.bool(true, "Show Dashboard",      group = grpUI)
+showHist = input.bool(true, "Show Trade History",  group = grpUI)
+histRows = input.int(10, "History Rows", minval = 1, maxval = 30, group = grpUI)
+
+// ─── KAMA (Kaufman Adaptive Moving Average) ───────────────────────────────────
+chg   = math.abs(close - close[erLen])
+noise = math.sum(math.abs(close - close[1]), erLen)
+er    = noise != 0 ? chg / noise : 0.0
+fastSC = 2.0 / (kamaFast + 1)
+slowSC = 2.0 / (kamaSlow + 1)
+sc     = math.pow(er * (fastSC - slowSC) + slowSC, 2)
+var float kama = na
+kama := na(kama[1]) ? close : kama[1] + sc * (close - kama[1])
+
+// ─── Volatility & trend-strength indicators ───────────────────────────────────
+atr = ta.atr(atrLen)
+[diPlus, diMinus, adx] = ta.dmi(adxLen, adxLen)
+
+// ─── Regime & trend state ─────────────────────────────────────────────────────
+trendUp   = close > kama and kama > kama[1]
+trendDown = close < kama and kama < kama[1]
+strong    = er >= erThresh and (not useAdx or adx >= adxThresh)
+
+// Breakout levels use the PRIOR bar's window -> no lookahead / no repaint.
+upBreak = ta.highest(high, donLen)[1]
+dnBreak = ta.lowest(low,  donLen)[1]
+
+longSig  =               trendUp   and strong and close > upBreak
+shortSig = allowShort and trendDown and strong and close < dnBreak
+
+// ─── Volatility-based position sizing ─────────────────────────────────────────
+stopDist      = atr * atrMult
+riskCapital   = strategy.equity * (riskPct / 100.0)
+rawQty        = stopDist > 0 ? riskCapital / stopDist : na
+maxAffordable = close > 0 ? strategy.equity / close : na
+qty           = na(rawQty) or na(maxAffordable) ? na : math.min(rawQty, maxAffordable)
+
+// ─── Entries (auto-reverse on opposite signal) ────────────────────────────────
+if longSig and strategy.position_size <= 0 and not na(qty)
+    strategy.entry("Long", strategy.long, qty = qty)
+
+if shortSig and strategy.position_size >= 0 and not na(qty)
+    strategy.entry("Short", strategy.short, qty = qty)
+
+// ─── Chandelier trailing stop (ratchets in your favour only) ──────────────────
+longChand  = ta.highest(high, chandLen) - atr * atrMult
+shortChand = ta.lowest(low,  chandLen) + atr * atrMult
+var float trailLong  = na
+var float trailShort = na
+
+if strategy.position_size > 0
+    trailLong  := na(trailLong[1]) ? longChand : math.max(trailLong[1], longChand)
+    trailShort := na
+    strategy.exit("Exit Long", from_entry = "Long", stop = trailLong)
+else if strategy.position_size < 0
+    trailShort := na(trailShort[1]) ? shortChand : math.min(trailShort[1], shortChand)
+    trailLong  := na
+    strategy.exit("Exit Short", from_entry = "Short", stop = trailShort)
+else
+    trailLong  := na
+    trailShort := na
+
+// ─── Visuals ──────────────────────────────────────────────────────────────────
+kamaCol = trendUp ? color.new(color.lime, 0) : trendDown ? color.new(color.red, 0) : color.new(color.gray, 0)
+plot(kama, "KAMA", color = kamaCol, linewidth = 2)
+plot(strategy.position_size > 0 ? trailLong  : na, "Long Stop",  color = color.new(color.orange,  0), style = plot.style_linebr)
+plot(strategy.position_size < 0 ? trailShort : na, "Short Stop", color = color.new(color.fuchsia, 0), style = plot.style_linebr)
+bgcolor(strong ? na : color.new(color.gray, 90), title = "No-trade (chop) shading")
+plotshape(longSig  and strategy.position_size <= 0, "Long Entry",  shape.triangleup,   location.belowbar, color.new(color.lime, 0), size = size.tiny)
+plotshape(shortSig and strategy.position_size >= 0, "Short Entry", shape.triangledown, location.abovebar, color.new(color.red,  0), size = size.tiny)
+
+// ─── Alerts (wire these to a webhook for live execution) ──────────────────────
+alertcondition(longSig,  "Long Signal",  "KAMA-TF: LONG breakout confirmed")
+alertcondition(shortSig, "Short Signal", "KAMA-TF: SHORT breakout confirmed")
+
+// ─── Dashboard ─────────────────────────────────────────────────────────────────
+var table dash = table.new(position.top_right, 2, 9, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 50))
+if showDash and barstate.islast
+    txtCol = color.new(color.white, 0)
+    hdrBg  = color.new(#1e1e2e, 0)
+    cellBg = color.new(#2a2a3a, 0)
+
+    netP   = strategy.netprofit
+    netPct = strategy.initial_capital != 0 ? netP / strategy.initial_capital * 100 : na
+    nCl    = strategy.closedtrades
+    wr     = nCl > 0 ? strategy.wintrades / nCl * 100 : na
+    pf     = strategy.grossloss != 0 ? strategy.grossprofit / strategy.grossloss : na
+    posTxt = strategy.position_size > 0 ? "LONG" : strategy.position_size < 0 ? "SHORT" : "FLAT"
+    posCol = strategy.position_size > 0 ? color.new(color.green, 0) : strategy.position_size < 0 ? color.new(color.red, 0) : color.new(color.gray, 0)
+    openP  = strategy.openprofit
+
+    table.cell(dash, 0, 0, "KAMA Trend Bot", text_color = txtCol, bgcolor = hdrBg,  text_size = size.normal)
+    table.cell(dash, 1, 0, posTxt,           text_color = color.white, bgcolor = posCol, text_size = size.normal)
+    table.cell(dash, 0, 1, "Net Profit",    text_color = txtCol, bgcolor = cellBg)
+    table.cell(dash, 1, 1, str.tostring(netP, "#.##") + " (" + str.tostring(netPct, "#.##") + "%)", text_color = netP >= 0 ? color.lime : color.red, bgcolor = cellBg)
+    table.cell(dash, 0, 2, "Open PnL",      text_color = txtCol, bgcolor = cellBg)
+    table.cell(dash, 1, 2, str.tostring(openP, "#.##"), text_color = openP >= 0 ? color.lime : color.red, bgcolor = cellBg)
+    table.cell(dash, 0, 3, "Closed Trades", text_color = txtCol, bgcolor = cellBg)
+    table.cell(dash, 1, 3, str.tostring(nCl), text_color = txtCol, bgcolor = cellBg)
+    table.cell(dash, 0, 4, "Win Rate",      text_color = txtCol, bgcolor = cellBg)
+    table.cell(dash, 1, 4, na(wr) ? "-" : str.tostring(wr, "#.#") + "%", text_color = txtCol, bgcolor = cellBg)
+    table.cell(dash, 0, 5, "Profit Factor", text_color = txtCol, bgcolor = cellBg)
+    table.cell(dash, 1, 5, na(pf) ? "-" : str.tostring(pf, "#.##"), text_color = txtCol, bgcolor = cellBg)
+    table.cell(dash, 0, 6, "Max Drawdown",  text_color = txtCol, bgcolor = cellBg)
+    table.cell(dash, 1, 6, str.tostring(strategy.max_drawdown, "#.##"), text_color = txtCol, bgcolor = cellBg)
+    table.cell(dash, 0, 7, "Eff. Ratio",    text_color = txtCol, bgcolor = cellBg)
+    table.cell(dash, 1, 7, str.tostring(er, "#.##") + (strong ? "  OK" : "  --"), text_color = strong ? color.lime : color.gray, bgcolor = cellBg)
+    table.cell(dash, 0, 8, "ADX",           text_color = txtCol, bgcolor = cellBg)
+    table.cell(dash, 1, 8, str.tostring(adx, "#.#"), text_color = txtCol, bgcolor = cellBg)
+
+// ─── Trade history table ──────────────────────────────────────────────────────
+var table hist = table.new(position.bottom_right, 5, histRows + 1, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 50))
+if showHist and barstate.islast
+    txtCol = color.new(color.white, 0)
+    hdrBg  = color.new(#1e1e2e, 0)
+    table.cell(hist, 0, 0, "#",     text_color = txtCol, bgcolor = hdrBg)
+    table.cell(hist, 1, 0, "Side",  text_color = txtCol, bgcolor = hdrBg)
+    table.cell(hist, 2, 0, "Entry", text_color = txtCol, bgcolor = hdrBg)
+    table.cell(hist, 3, 0, "Exit",  text_color = txtCol, bgcolor = hdrBg)
+    table.cell(hist, 4, 0, "PnL",   text_color = txtCol, bgcolor = hdrBg)
+
+    n = strategy.closedtrades
+    for k = 0 to histRows - 1
+        idx = n - 1 - k
+        r   = k + 1
+        if idx >= 0
+            sideTxt = strategy.closedtrades.size(idx) > 0 ? "L" : "S"
+            ep      = strategy.closedtrades.entry_price(idx)
+            xp      = strategy.closedtrades.exit_price(idx)
+            prof    = strategy.closedtrades.profit(idx)
+            rowBg   = prof >= 0 ? color.new(color.green, 65) : color.new(color.red, 65)
+            table.cell(hist, 0, r, str.tostring(idx + 1),        text_color = txtCol, bgcolor = rowBg)
+            table.cell(hist, 1, r, sideTxt,                      text_color = txtCol, bgcolor = rowBg)
+            table.cell(hist, 2, r, str.tostring(ep,   "#.##"),   text_color = txtCol, bgcolor = rowBg)
+            table.cell(hist, 3, r, str.tostring(xp,   "#.##"),   text_color = txtCol, bgcolor = rowBg)
+            table.cell(hist, 4, r, str.tostring(prof, "#.##"),   text_color = txtCol, bgcolor = rowBg)
+        else
+            emptyBg = color.new(color.gray, 80)
+            table.cell(hist, 0, r, "", bgcolor = emptyBg)
+            table.cell(hist, 1, r, "", bgcolor = emptyBg)
+            table.cell(hist, 2, r, "", bgcolor = emptyBg)
+            table.cell(hist, 3, r, "", bgcolor = emptyBg)
+            table.cell(hist, 4, r, "", bgcolor = emptyBg)
