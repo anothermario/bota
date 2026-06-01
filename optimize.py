@@ -1,17 +1,7 @@
 """
 optimize.py
 ===========
-Walk-forward parameter finetuner for the KAMA Trend-Follower. This is the engine
-the "strategy-finetune" skill runs on a 4-hour cadence.
-
-It splits your data into an in-sample (train) window and an out-of-sample (test)
-window, grid-searches parameters on train, then validates the winner on test.
-A parameter set is only accepted if it ALSO performs out-of-sample — this is the
-single most important guard against curve-fitting.
-
-Usage:
-    python optimize.py --csv BTCUSDT_4h.csv --out params.json
-    python optimize.py --demo --out params.json
+Walk-forward parameter finetuner for the KAMA Trend-Follower.
 """
 import argparse
 import itertools
@@ -22,7 +12,6 @@ import numpy as np
 
 from backtest import run_backtest, load_csv, make_synthetic, DEFAULT_PARAMS
 
-# Keep the grid small so a 4-hour cadence stays fast. Widen only if you have time.
 GRID = {
     "er_thresh": [0.25, 0.30, 0.35],
     "atr_mult": [2.5, 3.0, 3.5],
@@ -32,7 +21,6 @@ GRID = {
 
 
 def score(metrics):
-    """Rank by risk-adjusted return; penalise tiny samples and ugly drawdowns."""
     if metrics["total_trades"] < 15:
         return -1e9
     dd = abs(metrics["max_drawdown"]) or 1.0
@@ -60,7 +48,7 @@ def main():
     args = ap.parse_args()
 
     if args.demo:
-        df = make_synthetic()
+        df = make_synthetic(with_time=True)
     elif args.csv:
         df = load_csv(args.csv)
     else:
@@ -88,7 +76,6 @@ def main():
         with open(args.out, "w") as f:
             json.dump(full, f, indent=2)
         print(f"\nAccepted. Wrote new params -> {args.out}")
-        print("Copy these into the Pine strategy's Settings (or your alert/webhook config).")
     else:
         print("\nRejected: did not stay profitable out-of-sample. Keeping current params.")
 

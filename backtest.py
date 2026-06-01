@@ -102,10 +102,23 @@ def run_backtest(df, params):
     hi_chand = df["high"].rolling(p["chand_len"]).max()
     lo_chand = df["low"].rolling(p["chand_len"]).min()
 
+    # timestamps (optional): used by the dashboard. None if the CSV has no time col.
+    times = df["time"].tolist() if "time" in df.columns else [None] * len(df)
+
+    def ts(x):
+        # normalise a pandas/np timestamp to an ISO string the report can use
+        if x is None:
+            return None
+        try:
+            return pd.Timestamp(x).strftime("%Y-%m-%d %H:%M")
+        except Exception:  # noqa: BLE001
+            return str(x)
+
     equity = p["initial_capital"]
     pos = 0  # +1 long, -1 short, 0 flat
     qty = 0.0
     entry_price = 0.0
+    entry_time = None
     trail = np.nan
     trades = []
     equity_curve = []
@@ -129,8 +142,9 @@ def run_backtest(df, params):
                 pnl = (exit_p - entry_price) * qty
                 fee = (entry_price + exit_p) * qty * FEE
                 equity += pnl - fee
-                trades.append(dict(side="L", entry=entry_price, exit=exit_p, pnl=pnl - fee))
-                pos, qty, trail = 0, 0.0, np.nan
+                trades.append(dict(side="L", entry=entry_price, exit=exit_p, pnl=pnl - fee,
+                                   entry_time=entry_time, exit_time=ts(times[i])))
+                pos, qty, trail, entry_time = 0, 0.0, np.nan, None
         elif pos == -1:
             base = lo_chand.iloc[i] + a * p["atr_mult"]
             trail = base if math.isnan(trail) else min(trail, base)
@@ -139,11 +153,13 @@ def run_backtest(df, params):
                 pnl = (entry_price - exit_p) * qty
                 fee = (entry_price + exit_p) * qty * FEE
                 equity += pnl - fee
-                trades.append(dict(side="S", entry=entry_price, exit=exit_p, pnl=pnl - fee))
-                pos, qty, trail = 0, 0.0, np.nan
+                trades.append(dict(side="S", entry=entry_price, exit=exit_p, pnl=pnl - fee,
+                                   entry_time=entry_time, exit_time=ts(times[i])))
+                pos, qty, trail, entry_time = 0, 0.0, np.nan, None
 
         # --- new signals (fill at NEXT bar open, like Pine) ---
         nxt = cols[i + 1]["open"] if i + 1 < len(cols) else None
+        nxt_t = ts(times[i + 1]) if i + 1 < len(cols) else None
         if nxt is not None:
             stop_dist = a * p["atr_mult"]
             if stop_dist > 0:
@@ -155,16 +171,18 @@ def run_backtest(df, params):
                         pnl = (entry_price - nxt) * qty
                         fee = (entry_price + nxt) * qty * FEE
                         equity += pnl - fee
-                        trades.append(dict(side="S", entry=entry_price, exit=nxt, pnl=pnl - fee))
-                    pos, qty, entry_price, trail = 1, size, nxt, np.nan
+                        trades.append(dict(side="S", entry=entry_price, exit=nxt, pnl=pnl - fee,
+                                           entry_time=entry_time, exit_time=nxt_t))
+                    pos, qty, entry_price, trail, entry_time = 1, size, nxt, np.nan, nxt_t
                     equity -= nxt * size * FEE
                 elif bar["short_sig"] and pos >= 0:
                     if pos == 1:
                         pnl = (nxt - entry_price) * qty
                         fee = (entry_price + nxt) * qty * FEE
                         equity += pnl - fee
-                        trades.append(dict(side="L", entry=entry_price, exit=nxt, pnl=pnl - fee))
-                    pos, qty, entry_price, trail = -1, size, nxt, np.nan
+                        trades.append(dict(side="L", entry=entry_price, exit=nxt, pnl=pnl - fee,
+                                           entry_time=entry_time, exit_time=nxt_t))
+                    pos, qty, entry_price, trail, entry_time = -1, size, nxt, np.nan, nxt_t
                     equity -= nxt * size * FEE
         equity_curve.append(equity)
 
@@ -190,6 +208,7 @@ def _metrics(trades, curve, capital):
         "max_drawdown": round(dd.min(), 2) if len(dd) else 0.0,
         "sharpe_like": round(sharpe, 3),
         "final_equity": round(eq.iloc[-1], 2) if len(eq) else capital,
+        "equity_curve": [round(x, 2) for x in curve],
         "trades": trades,
     }
 
@@ -210,7 +229,7 @@ def load_csv(path):
     return df[[c for c in (["time"] + needed) if c in df.columns]].dropna().reset_index(drop=True)
 
 
-def make_synthetic(n=3000, seed=7):
+def make_synthetic(n=3000, seed=7, with_time=False):
     """Trending-with-noise random walk. SMOKE TEST ONLY — not a performance claim."""
     rng = np.random.default_rng(seed)
     drift = np.concatenate([np.full(n // 3, 0.0006), np.full(n // 3, -0.0004), np.full(n - 2 * (n // 3), 0.0005)])
@@ -219,7 +238,11 @@ def make_synthetic(n=3000, seed=7):
     high = close * (1 + np.abs(rng.normal(0, 0.004, n)))
     low = close * (1 - np.abs(rng.normal(0, 0.004, n)))
     open_ = np.concatenate([[close[0]], close[:-1]])
-    return pd.DataFrame({"open": open_, "high": high, "low": low, "close": close})
+    out = pd.DataFrame({"open": open_, "high": high, "low": low, "close": close})
+    if with_time:
+        end = pd.Timestamp.utcnow().floor("h")
+        out["time"] = pd.date_range(end=end, periods=n, freq="4h")
+    return out
 
 
 def main():
@@ -235,7 +258,7 @@ def main():
             params = json.load(f)
 
     if args.demo:
-        df = make_synthetic()
+        df = make_synthetic(with_time=True)
         print("[smoke test on SYNTHETIC data — proves the engine runs, NOT a profit claim]\n")
     elif args.csv:
         df = load_csv(args.csv)
@@ -245,10 +268,11 @@ def main():
 
     res = run_backtest(df, params)
     trades = res.pop("trades")
+    res.pop("equity_curve", None)
     print(json.dumps(res, indent=2))
     print(f"\nLast {min(5, len(trades))} trades:")
     for t in trades[-5:]:
-        print(f"  {t['side']}  entry={t['entry']:.2f}  exit={t['exit']:.2f}  pnl={t['pnl']:.2f}")
+        print(f"  {t['side']}  entry={t['entry']:.2f}  exit={t['exit']:.2f}  pnl={t['pnl']:.2f}  {t.get('exit_time')}")
 
 
 if __name__ == "__main__":

@@ -10,6 +10,8 @@ GitHub Actions). It:
   4. Promotes the new params ONLY if they stay profitable out-of-sample.
   5. Appends a row to results/history.csv and rewrites results/REPORT.md
      (+ an equity-curve PNG if matplotlib is available).
+  6. Writes docs/index.html — the public dashboard served by GitHub Pages —
+     and results/trades.json (full trade list with timestamps).
 
 It never deletes anything and never trades — it only proposes/records.
 
@@ -24,19 +26,25 @@ import json
 import os
 import sys
 
+import pandas as pd
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 
 from backtest import run_backtest, load_csv, DEFAULT_PARAMS  # noqa: E402
 from optimize import grid_search, GRID                       # noqa: E402
+from build_dashboard import build_html                       # noqa: E402
 
 RESULTS = os.path.join(ROOT, "results")
 DATA = os.path.join(ROOT, "data")
+DOCS = os.path.join(ROOT, "docs")
 PARAMS_PATH = os.path.join(HERE, "params.json")
 HISTORY = os.path.join(RESULTS, "history.csv")
 REPORT = os.path.join(RESULTS, "REPORT.md")
 CURVE = os.path.join(RESULTS, "equity_curve.png")
+TRADES_JSON = os.path.join(RESULTS, "trades.json")
+INDEX_HTML = os.path.join(DOCS, "index.html")
 
 
 def get_data(args):
@@ -94,6 +102,35 @@ def read_recent(n=10):
     return rows[-n:]
 
 
+def filter_window(trades, months):
+    """Return trades whose exit_time falls within the last `months` months."""
+    cutoff = pd.Timestamp.now("UTC").tz_localize(None) - pd.DateOffset(months=months)
+    out = []
+    for t in trades:
+        et = t.get("exit_time")
+        if et is None:
+            out.append(t)  # no timestamp (e.g. demo data) -> keep, can't filter
+            continue
+        try:
+            if pd.Timestamp(et) >= cutoff:
+                out.append(t)
+        except Exception:  # noqa: BLE001
+            out.append(t)
+    return out
+
+
+def window_metrics(trades):
+    if not trades:
+        return {"net": 0.0, "count": 0, "win_rate": 0.0}
+    net = sum(t["pnl"] for t in trades)
+    wins = sum(1 for t in trades if t["pnl"] > 0)
+    return {
+        "net": round(net, 2),
+        "count": len(trades),
+        "win_rate": round(wins / len(trades) * 100, 2),
+    }
+
+
 def write_report(symbol, interval, live, test_m, accepted, params, curve_ok):
     recent = read_recent(10)
     lines = []
@@ -140,10 +177,13 @@ def main():
     ap.add_argument("--csv")
     ap.add_argument("--train-frac", type=float, default=0.7)
     ap.add_argument("--min-trades", type=int, default=15)
+    ap.add_argument("--months", type=int, default=6, help="trade window shown on the dashboard")
+    ap.add_argument("--repo-url", default=os.environ.get("REPO_URL"))
     args = ap.parse_args()
 
     df = get_data(args)
     os.makedirs(RESULTS, exist_ok=True)
+    os.makedirs(DOCS, exist_ok=True)
     if len(df) < 200:
         print(f"Not enough data ({len(df)} bars). Increase --limit.", file=sys.stderr)
         sys.exit(1)
@@ -173,8 +213,29 @@ def main():
 
     curve_ok = write_curve(reconstruct_equity(live["trades"], capital))
 
+    # --- last-N-months window for the dashboard ---
+    win_trades = filter_window(live["trades"], args.months)
+    win_m = window_metrics(win_trades)
+
+    # full trade list (with timestamps) for anyone who wants the raw data
+    with open(TRADES_JSON, "w") as f:
+        json.dump(live["trades"], f, indent=2)
+
+    # --- public dashboard ---
+    generated = f"{dt.datetime.now(dt.timezone.utc):%Y-%m-%d %H:%M}"
+    html_out = build_html(
+        symbol=args.symbol, interval=args.interval,
+        params=params_for_report, live=live,
+        window_metrics=win_m, window_trades=win_trades, months=args.months,
+        accepted=accepted, oos=test_m, generated_utc=generated,
+        repo_url=args.repo_url,
+    )
+    with open(INDEX_HTML, "w") as f:
+        f.write(html_out)
+    print(f"[dashboard] wrote {INDEX_HTML} ({len(win_trades)} trades in last {args.months}m)")
+
     append_history({
-        "timestamp": f"{dt.datetime.now(dt.timezone.utc):%Y-%m-%d %H:%M}",
+        "timestamp": generated,
         "symbol": args.symbol, "interval": args.interval, "data_bars": len(df),
         "live_net_pct": live["net_profit_pct"], "live_pf": live["profit_factor"],
         "live_trades": live["total_trades"], "live_max_dd": live["max_drawdown"],
