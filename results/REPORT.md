@@ -1,6 +1,6 @@
 # Finetune report — BTCUSDT 4h
 
-_Last run (UTC): 2026-06-03 21:08_
+_Last run (UTC): 2026-06-04 01:01_
 
 ## Current params (live)
 
@@ -24,7 +24,7 @@ _Last run (UTC): 2026-06-03 21:08_
 
 ## Latest cycle
 
-- Current-params net profit (full sample): **-7.45%**, PF 0.509, 35 trades, max DD -960.23
+- Current-params net profit (full sample): **-7.45%**, PF 0.509, 35 trades, max DD -960.27
 - Optimizer out-of-sample: net **-5.34%**, PF 0.006, 10 trades
 - Decision: **kept current params**
 
@@ -42,3 +42,4 @@ _Last run (UTC): 2026-06-03 21:08_
 | 2026-06-03 13:43 | 1500 | -7.68 | 0.492 | -5.34 | 0.006 | False |
 | 2026-06-03 17:44 | 1500 | -7.51 | 0.505 | -5.34 | 0.006 | False |
 | 2026-06-03 21:08 | 1500 | -7.45 | 0.509 | -5.34 | 0.006 | False |
+| 2026-06-04 01:01 | 1500 | -7.45 | 0.509 | -5.34 | 0.006 | False |
