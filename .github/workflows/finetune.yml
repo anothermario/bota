@@ -1,20 +1,21 @@
 name: Finetune & Backtest
 
 # Runs every 4 hours, and can be triggered manually from the Actions tab.
+# (Timeframe is 15m by default; the *cadence* of this loop stays 4-hourly.)
 on:
   schedule:
     - cron: "0 */4 * * *"   # 00:00, 04:00, 08:00 ... UTC
   workflow_dispatch:
     inputs:
-      symbol:
-        description: "Trading pair"
-        default: "BTCUSDT"
+      symbols:
+        description: "Comma-separated trading pairs"
+        default: "BTCUSDT,ETHUSDT,ETCUSDT"
       interval:
-        description: "Timeframe (1h, 4h, 1d ...)"
-        default: "4h"
+        description: "Timeframe (15m, 1h, 4h, 1d ...)"
+        default: "15m"
       limit:
-        description: "How many bars to fetch (1500 x 4h ~ 8 months)"
-        default: "1500"
+        description: "How many bars to fetch per symbol"
+        default: "5000"
 
 # Allow the workflow to push the results commit back to the repo.
 permissions:
@@ -40,20 +41,17 @@ jobs:
         run: pip install pandas numpy requests matplotlib
 
       - name: Run finetune cycle
-        env:
-          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
           python finetune/run_cycle.py \
-            --symbol "${{ github.event.inputs.symbol || 'BTCUSDT' }}" \
-            --interval "${{ github.event.inputs.interval || '4h' }}" \
-            --limit "${{ github.event.inputs.limit || '1500' }}" \
-            --months 6
+            --symbols "${{ github.event.inputs.symbols || 'BTCUSDT,ETHUSDT,ETCUSDT' }}" \
+            --interval "${{ github.event.inputs.interval || '15m' }}" \
+            --limit "${{ github.event.inputs.limit || '5000' }}"
 
-      - name: Commit results + dashboard
+      - name: Commit results
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add results data docs finetune/params.json
+          git add results data finetune/params
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
