@@ -1,0 +1,2 @@
+timestamp,symbol,interval,data_bars,live_net_pct,live_pf,live_trades,live_max_dd,oos_net_pct,oos_pf,oos_trades,accepted,params
+2026-06-09 16:58,BTCUSDT,15m,5000,-17.33,0.365,91,-1733.47,1.41,1.239,16,True,"{""er_thresh"": 0.35, ""atr_mult"": 3.5, ""don_len"": 20, ""chand_len"": 22}"
