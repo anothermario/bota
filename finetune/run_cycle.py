@@ -1,23 +1,27 @@
 """
 run_cycle.py
 ============
-One full finetune cycle, designed to be run on a schedule (e.g. every 4 hours by
-GitHub Actions). It:
+One full finetune cycle for ONE OR MORE symbols, designed to be run on a schedule
+(e.g. every 4 hours by GitHub Actions). For each symbol it:
 
-  1. Gets fresh data (Binance public API, or a --csv you pass).
+  1. Gets fresh data (Binance public API, a --csv, or a --csv-dir).
   2. Backtests the CURRENT live params on all of it  -> "tracking" snapshot.
   3. Runs a walk-forward grid search (train -> out-of-sample test).
   4. Promotes the new params ONLY if they stay profitable out-of-sample.
-  5. Appends a row to results/history.csv and rewrites results/REPORT.md
-     (+ an equity-curve PNG if matplotlib is available).
-  6. Writes docs/index.html — the public dashboard served by GitHub Pages —
-     and results/trades.json (full trade list with timestamps).
+  5. Appends a row to results/<SYMBOL>/history.csv and rewrites
+     results/<SYMBOL>/REPORT.md (+ an equity-curve PNG if matplotlib is available).
 
-It never deletes anything and never trades — it only proposes/records.
+After all symbols run, it writes a combined results/REPORT.md index.
+
+It never deletes anything and never trades -- it only proposes/records.
+
+Per-symbol params live in finetune/params/<SYMBOL>.json. If a symbol has no file
+yet, the legacy finetune/params.json (or DEFAULT_PARAMS) is used as the seed.
 
 Usage:
-    python run_cycle.py --symbol BTCUSDT --interval 4h --limit 1500
-    python run_cycle.py --csv data/BTCUSDT_4h.csv      # use a local file instead
+    python run_cycle.py --symbols BTCUSDT,ETHUSDT,ETCUSDT --interval 15m --limit 5000
+    python run_cycle.py --symbol BTCUSDT --csv data/BTCUSDT_15m.csv       # single, local file
+    python run_cycle.py --symbols BTCUSDT,ETHUSDT --csv-dir data          # local files per symbol
 """
 import argparse
 import csv
@@ -26,34 +30,52 @@ import json
 import os
 import sys
 
-import pandas as pd
-
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 
 from backtest import run_backtest, load_csv, DEFAULT_PARAMS  # noqa: E402
-from optimize import grid_search, GRID                       # noqa: E402
-from build_dashboard import build_html                       # noqa: E402
+from optimize import grid_search, GRID, MIN_TRADES           # noqa: E402
 
 RESULTS = os.path.join(ROOT, "results")
 DATA = os.path.join(ROOT, "data")
-DOCS = os.path.join(ROOT, "docs")
-PARAMS_PATH = os.path.join(HERE, "params.json")
-HISTORY = os.path.join(RESULTS, "history.csv")
-REPORT = os.path.join(RESULTS, "REPORT.md")
-CURVE = os.path.join(RESULTS, "equity_curve.png")
-TRADES_JSON = os.path.join(RESULTS, "trades.json")
-INDEX_HTML = os.path.join(DOCS, "index.html")
+PARAMS_DIR = os.path.join(HERE, "params")
+LEGACY_PARAMS = os.path.join(HERE, "params.json")
 
 
-def get_data(args):
+# -- params helpers (per symbol, with legacy fallback) ------------------------
+def params_path(symbol):
+    return os.path.join(PARAMS_DIR, f"{symbol.upper()}.json")
+
+
+def load_params(symbol):
+    p = params_path(symbol)
+    if os.path.exists(p):
+        with open(p) as f:
+            return json.load(f)
+    if os.path.exists(LEGACY_PARAMS):
+        with open(LEGACY_PARAMS) as f:
+            return json.load(f)
+    return {k: v for k, v in DEFAULT_PARAMS.items() if k != "initial_capital"}
+
+
+def save_params(symbol, params):
+    os.makedirs(PARAMS_DIR, exist_ok=True)
+    with open(params_path(symbol), "w") as f:
+        json.dump(params, f, indent=2)
+
+
+# -- data --------------------------------------------------------------------
+def get_data(symbol, args):
+    if args.csv_dir:
+        path = os.path.join(args.csv_dir, f"{symbol.upper()}_{args.interval}.csv")
+        return load_csv(path)
     if args.csv:
         return load_csv(args.csv)
     from fetch_data import fetch_with_fallback
-    df = fetch_with_fallback(args.symbol, args.interval, args.limit)
+    df = fetch_with_fallback(symbol, args.interval, args.limit)
     os.makedirs(DATA, exist_ok=True)
-    df.to_csv(os.path.join(DATA, f"{args.symbol}_{args.interval}.csv"), index=False)
+    df.to_csv(os.path.join(DATA, f"{symbol.upper()}_{args.interval}.csv"), index=False)
     return df
 
 
@@ -65,7 +87,7 @@ def reconstruct_equity(trades, capital):
     return eq
 
 
-def write_curve(eq):
+def write_curve(eq, path):
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -76,7 +98,7 @@ def write_curve(eq):
         plt.xlabel("closed trade #")
         plt.ylabel("equity")
         plt.tight_layout()
-        plt.savefig(CURVE, dpi=110)
+        plt.savefig(path, dpi=110)
         plt.close()
         return True
     except Exception as e:  # noqa: BLE001
@@ -84,57 +106,28 @@ def write_curve(eq):
         return False
 
 
-def append_history(row):
-    os.makedirs(RESULTS, exist_ok=True)
-    new = not os.path.exists(HISTORY)
-    with open(HISTORY, "a", newline="") as f:
+def append_history(path, row):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    new = not os.path.exists(path)
+    with open(path, "a", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(row.keys()))
         if new:
             w.writeheader()
         w.writerow(row)
 
 
-def read_recent(n=10):
-    if not os.path.exists(HISTORY):
+def read_recent(path, n=10):
+    if not os.path.exists(path):
         return []
-    with open(HISTORY) as f:
+    with open(path) as f:
         rows = list(csv.DictReader(f))
     return rows[-n:]
 
 
-def filter_window(trades, months):
-    """Return trades whose exit_time falls within the last `months` months."""
-    cutoff = pd.Timestamp.now("UTC").tz_localize(None) - pd.DateOffset(months=months)
-    out = []
-    for t in trades:
-        et = t.get("exit_time")
-        if et is None:
-            out.append(t)  # no timestamp (e.g. demo data) -> keep, can't filter
-            continue
-        try:
-            if pd.Timestamp(et) >= cutoff:
-                out.append(t)
-        except Exception:  # noqa: BLE001
-            out.append(t)
-    return out
-
-
-def window_metrics(trades):
-    if not trades:
-        return {"net": 0.0, "count": 0, "win_rate": 0.0}
-    net = sum(t["pnl"] for t in trades)
-    wins = sum(1 for t in trades if t["pnl"] > 0)
-    return {
-        "net": round(net, 2),
-        "count": len(trades),
-        "win_rate": round(wins / len(trades) * 100, 2),
-    }
-
-
-def write_report(symbol, interval, live, test_m, accepted, params, curve_ok):
-    recent = read_recent(10)
+def write_symbol_report(out_dir, symbol, interval, live, test_m, accepted, params, curve_ok):
+    recent = read_recent(os.path.join(out_dir, "history.csv"), 10)
     lines = []
-    lines.append(f"# Finetune report — {symbol} {interval}")
+    lines.append(f"# Finetune report -- {symbol} {interval}")
     lines.append("")
     lines.append(f"_Last run (UTC): {dt.datetime.now(dt.timezone.utc):%Y-%m-%d %H:%M}_")
     lines.append("")
@@ -164,34 +157,40 @@ def write_report(symbol, interval, live, test_m, accepted, params, curve_ok):
         lines.append(f"| {r['timestamp']} | {r['data_bars']} | {r['live_net_pct']} | "
                      f"{r['live_pf']} | {r['oos_net_pct']} | {r['oos_pf']} | {r['accepted']} |")
     lines.append("")
-    os.makedirs(RESULTS, exist_ok=True)
-    with open(REPORT, "w") as f:
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, "REPORT.md"), "w") as f:
         f.write("\n".join(lines))
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--symbol", default="BTCUSDT")
-    ap.add_argument("--interval", default="4h")
-    ap.add_argument("--limit", type=int, default=1500)
-    ap.add_argument("--csv")
-    ap.add_argument("--train-frac", type=float, default=0.7)
-    ap.add_argument("--min-trades", type=int, default=15)
-    ap.add_argument("--months", type=int, default=6, help="trade window shown on the dashboard")
-    ap.add_argument("--repo-url", default=os.environ.get("REPO_URL"))
-    args = ap.parse_args()
-
-    df = get_data(args)
+def write_index_report(interval, summary):
+    lines = []
+    lines.append(f"# Finetune index -- {interval}")
+    lines.append("")
+    lines.append(f"_Last run (UTC): {dt.datetime.now(dt.timezone.utc):%Y-%m-%d %H:%M}_")
+    lines.append("")
+    lines.append("| symbol | bars | live net% | live PF | OOS net% | OOS PF | trades | accepted | report |")
+    lines.append("|---|---|---|---|---|---|---|---|---|")
+    for s in summary:
+        lines.append(f"| {s['symbol']} | {s['bars']} | {s['live_net_pct']} | {s['live_pf']} | "
+                     f"{s['oos_net_pct']} | {s['oos_pf']} | {s['oos_trades']} | {s['accepted']} | "
+                     f"[{s['symbol']}]({s['symbol']}/REPORT.md) |")
+    lines.append("")
     os.makedirs(RESULTS, exist_ok=True)
-    os.makedirs(DOCS, exist_ok=True)
+    with open(os.path.join(RESULTS, "REPORT.md"), "w") as f:
+        f.write("\n".join(lines))
+
+
+def run_one(symbol, args):
+    df = get_data(symbol, args)
     if len(df) < 200:
-        print(f"Not enough data ({len(df)} bars). Increase --limit.", file=sys.stderr)
-        sys.exit(1)
+        print(f"[{symbol}] Not enough data ({len(df)} bars). Increase --limit.", file=sys.stderr)
+        return None
 
-    with open(PARAMS_PATH) as f:
-        current = json.load(f)
-
+    out_dir = os.path.join(RESULTS, symbol.upper())
+    os.makedirs(out_dir, exist_ok=True)
+    current = load_params(symbol)
     capital = DEFAULT_PARAMS["initial_capital"]
+
     live = run_backtest(df, current)
 
     split = int(len(df) * args.train_frac)
@@ -205,52 +204,73 @@ def main():
 
     if accepted:
         promoted = {k: v for k, v in best_params.items() if k != "initial_capital"}
-        with open(PARAMS_PATH, "w") as f:
-            json.dump(promoted, f, indent=2)
+        save_params(symbol, promoted)
         params_for_report = promoted
     else:
         params_for_report = {k: v for k, v in current.items() if k != "initial_capital"}
 
-    curve_ok = write_curve(reconstruct_equity(live["trades"], capital))
+    curve_ok = write_curve(reconstruct_equity(live["trades"], capital),
+                           os.path.join(out_dir, "equity_curve.png"))
 
-    # --- last-N-months window for the dashboard ---
-    win_trades = filter_window(live["trades"], args.months)
-    win_m = window_metrics(win_trades)
-
-    # full trade list (with timestamps) for anyone who wants the raw data
-    with open(TRADES_JSON, "w") as f:
-        json.dump(live["trades"], f, indent=2)
-
-    # --- public dashboard ---
-    generated = f"{dt.datetime.now(dt.timezone.utc):%Y-%m-%d %H:%M}"
-    html_out = build_html(
-        symbol=args.symbol, interval=args.interval,
-        params=params_for_report, live=live,
-        window_metrics=win_m, window_trades=win_trades, months=args.months,
-        accepted=accepted, oos=test_m, generated_utc=generated,
-        repo_url=args.repo_url,
-    )
-    with open(INDEX_HTML, "w") as f:
-        f.write(html_out)
-    print(f"[dashboard] wrote {INDEX_HTML} ({len(win_trades)} trades in last {args.months}m)")
-
-    append_history({
-        "timestamp": generated,
-        "symbol": args.symbol, "interval": args.interval, "data_bars": len(df),
+    append_history(os.path.join(out_dir, "history.csv"), {
+        "timestamp": f"{dt.datetime.now(dt.timezone.utc):%Y-%m-%d %H:%M}",
+        "symbol": symbol, "interval": args.interval, "data_bars": len(df),
         "live_net_pct": live["net_profit_pct"], "live_pf": live["profit_factor"],
         "live_trades": live["total_trades"], "live_max_dd": live["max_drawdown"],
         "oos_net_pct": test_m["net_profit_pct"], "oos_pf": test_m["profit_factor"],
         "oos_trades": test_m["total_trades"], "accepted": accepted,
         "params": json.dumps({k: best_params[k] for k in GRID}),
     })
-    write_report(args.symbol, args.interval, live, test_m, accepted, params_for_report, curve_ok)
+    write_symbol_report(out_dir, symbol, args.interval, live, test_m, accepted,
+                        params_for_report, curve_ok)
 
-    print(json.dumps({
-        "accepted": accepted,
-        "live_net_pct": live["net_profit_pct"],
-        "oos_net_pct": test_m["net_profit_pct"],
-        "oos_pf": test_m["profit_factor"],
-    }, indent=2))
+    return {
+        "symbol": symbol, "bars": len(df),
+        "live_net_pct": live["net_profit_pct"], "live_pf": live["profit_factor"],
+        "oos_net_pct": test_m["net_profit_pct"], "oos_pf": test_m["profit_factor"],
+        "oos_trades": test_m["total_trades"], "accepted": accepted,
+    }
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--symbols", default=None, help="comma-separated, e.g. BTCUSDT,ETHUSDT,ETCUSDT")
+    ap.add_argument("--symbol", default=None, help="single symbol (alias for --symbols)")
+    ap.add_argument("--interval", default="15m")
+    ap.add_argument("--limit", type=int, default=5000)
+    ap.add_argument("--csv", help="single local CSV (only valid with one symbol)")
+    ap.add_argument("--csv-dir", dest="csv_dir", help="dir of <SYMBOL>_<interval>.csv files")
+    ap.add_argument("--train-frac", type=float, default=0.7)
+    ap.add_argument("--min-trades", type=int, default=MIN_TRADES)
+    args = ap.parse_args()
+
+    if args.symbols:
+        symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    elif args.symbol:
+        symbols = [args.symbol.strip().upper()]
+    else:
+        symbols = ["BTCUSDT", "ETHUSDT", "ETCUSDT"]
+
+    if args.csv and len(symbols) > 1:
+        print("--csv takes a single file; use --csv-dir for multiple symbols.", file=sys.stderr)
+        sys.exit(2)
+
+    os.makedirs(RESULTS, exist_ok=True)
+    summary = []
+    for sym in symbols:
+        print(f"\n=== {sym} {args.interval} ===")
+        try:
+            row = run_one(sym, args)
+        except Exception as e:  # noqa: BLE001
+            print(f"[{sym}] cycle failed: {e}", file=sys.stderr)
+            row = None
+        if row:
+            summary.append(row)
+            print(json.dumps(row, indent=2))
+
+    if summary:
+        write_index_report(args.interval, summary)
+    print(f"\n[done] {len(summary)}/{len(symbols)} symbols completed.")
 
 
 if __name__ == "__main__":

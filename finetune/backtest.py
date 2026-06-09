@@ -9,9 +9,15 @@ Input CSV must have columns (case-insensitive): time/date, open, high, low, clos
 You can export this straight from TradingView (Export chart data) or Binance.
 
 Usage:
-    python backtest.py --csv BTCUSDT_4h.csv
+    python backtest.py --csv BTCUSDT_15m.csv
     python backtest.py --demo                 # runs on synthetic data (smoke test only)
     python backtest.py --csv data.csv --params params.json
+
+Fee model (matches Pine `commission.percent = 0.04`):
+    Each *fill* costs 0.04%. A round trip = entry fill + exit fill = two charges.
+    The entry fee is debited at entry; the exit fee is debited at exit. Per-trade
+    `pnl` is reported NET of both fees, and the equity curve equals
+    initial_capital + sum(per-trade pnl) for closed trades.
 """
 import argparse
 import json
@@ -41,7 +47,7 @@ DEFAULT_PARAMS = {
 }
 
 
-# ── Indicator helpers (vectorised; no lookahead) ──────────────────────────────
+# -- Indicator helpers (vectorised; no lookahead) -----------------------------
 def kama(close, er_len, fast, slow):
     chg = (close - close.shift(er_len)).abs()
     noise = close.diff().abs().rolling(er_len).sum()
@@ -80,7 +86,7 @@ def adx(df, length):
     return dx.ewm(alpha=1 / length, adjust=False).mean().fillna(0)
 
 
-# ── Backtest engine ───────────────────────────────────────────────────────────
+# -- Backtest engine ----------------------------------------------------------
 def run_backtest(df, params):
     p = {**DEFAULT_PARAMS, **params}
     df = df.copy()
@@ -97,28 +103,16 @@ def run_backtest(df, params):
     df["strong"] = (df["er"] >= p["er_thresh"]) & (df["adx"] >= (p["adx_thresh"] if p["use_adx"] else -1))
 
     df["long_sig"] = df["trend_up"] & df["strong"] & (df["close"] > df["up_break"])
-    df["short_sig"] = p["allow_short"] & df["trend_dn"] & df["strong"] & (df["close"] < df["dn_break"])
+    df["short_sig"] = bool(p["allow_short"]) & df["trend_dn"] & df["strong"] & (df["close"] < df["dn_break"])
 
     hi_chand = df["high"].rolling(p["chand_len"]).max()
     lo_chand = df["low"].rolling(p["chand_len"]).min()
-
-    # timestamps (optional): used by the dashboard. None if the CSV has no time col.
-    times = df["time"].tolist() if "time" in df.columns else [None] * len(df)
-
-    def ts(x):
-        # normalise a pandas/np timestamp to an ISO string the report can use
-        if x is None:
-            return None
-        try:
-            return pd.Timestamp(x).strftime("%Y-%m-%d %H:%M")
-        except Exception:  # noqa: BLE001
-            return str(x)
 
     equity = p["initial_capital"]
     pos = 0  # +1 long, -1 short, 0 flat
     qty = 0.0
     entry_price = 0.0
-    entry_time = None
+    entry_fee = 0.0          # fee already paid when the open position was entered
     trail = np.nan
     trades = []
     equity_curve = []
@@ -134,32 +128,33 @@ def run_backtest(df, params):
             continue
 
         # --- manage open position: update trail, check stop on this bar ---
+        # Entry fee was already debited at entry; here we debit only the EXIT fill
+        # fee, so equity == initial + sum(per-trade pnl) and matches Pine 1:1.
         if pos == 1:
             base = hi_chand.iloc[i] - a * p["atr_mult"]
             trail = base if math.isnan(trail) else max(trail, base)
             if l <= trail:  # stop hit
                 exit_p = min(o, trail)  # conservative fill
-                pnl = (exit_p - entry_price) * qty
-                fee = (entry_price + exit_p) * qty * FEE
-                equity += pnl - fee
-                trades.append(dict(side="L", entry=entry_price, exit=exit_p, pnl=pnl - fee,
-                                   entry_time=entry_time, exit_time=ts(times[i])))
-                pos, qty, trail, entry_time = 0, 0.0, np.nan, None
+                gross = (exit_p - entry_price) * qty
+                exit_fee = exit_p * qty * FEE
+                equity += gross - exit_fee
+                trades.append(dict(side="L", entry=entry_price, exit=exit_p,
+                                   pnl=gross - entry_fee - exit_fee))
+                pos, qty, trail, entry_fee = 0, 0.0, np.nan, 0.0
         elif pos == -1:
             base = lo_chand.iloc[i] + a * p["atr_mult"]
             trail = base if math.isnan(trail) else min(trail, base)
             if h >= trail:
                 exit_p = max(o, trail)
-                pnl = (entry_price - exit_p) * qty
-                fee = (entry_price + exit_p) * qty * FEE
-                equity += pnl - fee
-                trades.append(dict(side="S", entry=entry_price, exit=exit_p, pnl=pnl - fee,
-                                   entry_time=entry_time, exit_time=ts(times[i])))
-                pos, qty, trail, entry_time = 0, 0.0, np.nan, None
+                gross = (entry_price - exit_p) * qty
+                exit_fee = exit_p * qty * FEE
+                equity += gross - exit_fee
+                trades.append(dict(side="S", entry=entry_price, exit=exit_p,
+                                   pnl=gross - entry_fee - exit_fee))
+                pos, qty, trail, entry_fee = 0, 0.0, np.nan, 0.0
 
         # --- new signals (fill at NEXT bar open, like Pine) ---
         nxt = cols[i + 1]["open"] if i + 1 < len(cols) else None
-        nxt_t = ts(times[i + 1]) if i + 1 < len(cols) else None
         if nxt is not None:
             stop_dist = a * p["atr_mult"]
             if stop_dist > 0:
@@ -167,23 +162,25 @@ def run_backtest(df, params):
                 max_qty = equity / nxt
                 size = min(raw_qty, max_qty)
                 if bar["long_sig"] and pos <= 0:
-                    if pos == -1:  # reverse
-                        pnl = (entry_price - nxt) * qty
-                        fee = (entry_price + nxt) * qty * FEE
-                        equity += pnl - fee
-                        trades.append(dict(side="S", entry=entry_price, exit=nxt, pnl=pnl - fee,
-                                           entry_time=entry_time, exit_time=nxt_t))
-                    pos, qty, entry_price, trail, entry_time = 1, size, nxt, np.nan, nxt_t
-                    equity -= nxt * size * FEE
+                    if pos == -1:  # reverse: close short at nxt (exit fee only)
+                        gross = (entry_price - nxt) * qty
+                        exit_fee = nxt * qty * FEE
+                        equity += gross - exit_fee
+                        trades.append(dict(side="S", entry=entry_price, exit=nxt,
+                                           pnl=gross - entry_fee - exit_fee))
+                    entry_fee = nxt * size * FEE
+                    equity -= entry_fee
+                    pos, qty, entry_price, trail = 1, size, nxt, np.nan
                 elif bar["short_sig"] and pos >= 0:
                     if pos == 1:
-                        pnl = (nxt - entry_price) * qty
-                        fee = (entry_price + nxt) * qty * FEE
-                        equity += pnl - fee
-                        trades.append(dict(side="L", entry=entry_price, exit=nxt, pnl=pnl - fee,
-                                           entry_time=entry_time, exit_time=nxt_t))
-                    pos, qty, entry_price, trail, entry_time = -1, size, nxt, np.nan, nxt_t
-                    equity -= nxt * size * FEE
+                        gross = (nxt - entry_price) * qty
+                        exit_fee = nxt * qty * FEE
+                        equity += gross - exit_fee
+                        trades.append(dict(side="L", entry=entry_price, exit=nxt,
+                                           pnl=gross - entry_fee - exit_fee))
+                    entry_fee = nxt * size * FEE
+                    equity -= entry_fee
+                    pos, qty, entry_price, trail = -1, size, nxt, np.nan
         equity_curve.append(equity)
 
     return _metrics(trades, equity_curve, p["initial_capital"])
@@ -208,12 +205,11 @@ def _metrics(trades, curve, capital):
         "max_drawdown": round(dd.min(), 2) if len(dd) else 0.0,
         "sharpe_like": round(sharpe, 3),
         "final_equity": round(eq.iloc[-1], 2) if len(eq) else capital,
-        "equity_curve": [round(x, 2) for x in curve],
         "trades": trades,
     }
 
 
-# ── IO ────────────────────────────────────────────────────────────────────────
+# -- IO -----------------------------------------------------------------------
 def load_csv(path):
     df = pd.read_csv(path)
     df.columns = [c.strip().lower() for c in df.columns]
@@ -229,8 +225,8 @@ def load_csv(path):
     return df[[c for c in (["time"] + needed) if c in df.columns]].dropna().reset_index(drop=True)
 
 
-def make_synthetic(n=3000, seed=7, with_time=False):
-    """Trending-with-noise random walk. SMOKE TEST ONLY — not a performance claim."""
+def make_synthetic(n=3000, seed=7):
+    """Trending-with-noise random walk. SMOKE TEST ONLY -- not a performance claim."""
     rng = np.random.default_rng(seed)
     drift = np.concatenate([np.full(n // 3, 0.0006), np.full(n // 3, -0.0004), np.full(n - 2 * (n // 3), 0.0005)])
     rets = drift + rng.normal(0, 0.012, n)
@@ -238,11 +234,7 @@ def make_synthetic(n=3000, seed=7, with_time=False):
     high = close * (1 + np.abs(rng.normal(0, 0.004, n)))
     low = close * (1 - np.abs(rng.normal(0, 0.004, n)))
     open_ = np.concatenate([[close[0]], close[:-1]])
-    out = pd.DataFrame({"open": open_, "high": high, "low": low, "close": close})
-    if with_time:
-        end = pd.Timestamp.utcnow().floor("h")
-        out["time"] = pd.date_range(end=end, periods=n, freq="4h")
-    return out
+    return pd.DataFrame({"open": open_, "high": high, "low": low, "close": close})
 
 
 def main():
@@ -258,8 +250,8 @@ def main():
             params = json.load(f)
 
     if args.demo:
-        df = make_synthetic(with_time=True)
-        print("[smoke test on SYNTHETIC data — proves the engine runs, NOT a profit claim]\n")
+        df = make_synthetic()
+        print("[smoke test on SYNTHETIC data -- proves the engine runs, NOT a profit claim]\n")
     elif args.csv:
         df = load_csv(args.csv)
     else:
@@ -268,11 +260,10 @@ def main():
 
     res = run_backtest(df, params)
     trades = res.pop("trades")
-    res.pop("equity_curve", None)
     print(json.dumps(res, indent=2))
     print(f"\nLast {min(5, len(trades))} trades:")
     for t in trades[-5:]:
-        print(f"  {t['side']}  entry={t['entry']:.2f}  exit={t['exit']:.2f}  pnl={t['pnl']:.2f}  {t.get('exit_time')}")
+        print(f"  {t['side']}  entry={t['entry']:.2f}  exit={t['exit']:.2f}  pnl={t['pnl']:.2f}")
 
 
 if __name__ == "__main__":

@@ -6,12 +6,16 @@ account needed). Writes a CSV with columns time, open, high, low, close that the
 backtester/optimizer consume directly.
 
 We default to data-api.binance.vision (Binance's public data mirror) because it
-is generally reachable from cloud IPs — the main api.binance.com host is
+is generally reachable from cloud IPs -- the main api.binance.com host is
 geo-blocked in some regions (e.g. US-hosted CI runners get HTTP 451). If one
 host fails, pass --base to switch.
 
+15m note: 15m bars accumulate ~16x faster than 4h, so for a comparable calendar
+window you need many more bars. 5000 x 15m ~= 52 days; that still leaves a
+30% out-of-sample slice of ~15 days. Use --limit to go higher.
+
 Usage:
-    python fetch_data.py --symbol BTCUSDT --interval 4h --limit 1500 --out data/BTCUSDT_4h.csv
+    python fetch_data.py --symbol BTCUSDT --interval 15m --limit 5000 --out data/BTCUSDT_15m.csv
 """
 import argparse
 import sys
@@ -62,15 +66,15 @@ def fetch_with_fallback(symbol, interval, limit):
                 return df
         except Exception as e:  # noqa: BLE001
             print(f"[fetch] {base} failed: {e}", file=sys.stderr)
-    raise RuntimeError("All data hosts failed — check connectivity / geo-restrictions.")
+    raise RuntimeError("All data hosts failed -- check connectivity / geo-restrictions.")
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbol", default="BTCUSDT")
-    ap.add_argument("--interval", default="4h")
-    ap.add_argument("--limit", type=int, default=1500)
-    ap.add_argument("--out", default="data/BTCUSDT_4h.csv")
+    ap.add_argument("--interval", default="15m")
+    ap.add_argument("--limit", type=int, default=5000)
+    ap.add_argument("--out", default="data/BTCUSDT_15m.csv")
     ap.add_argument("--base", default=None, help="override data host")
     args = ap.parse_args()
 
