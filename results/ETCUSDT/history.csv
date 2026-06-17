@@ -44,3 +44,4 @@ timestamp,symbol,interval,data_bars,live_net_pct,live_pf,live_trades,live_max_dd
 2026-06-16 17:45,ETCUSDT,15m,5000,-12.17,0.571,82,-1627.4,-1.14,0.814,16,False,"{""er_thresh"": 0.3, ""atr_mult"": 3.5, ""don_len"": 15, ""chand_len"": 18}"
 2026-06-16 21:06,ETCUSDT,15m,5000,-12.17,0.571,82,-1627.4,-1.14,0.814,16,False,"{""er_thresh"": 0.3, ""atr_mult"": 3.5, ""don_len"": 15, ""chand_len"": 18}"
 2026-06-17 00:58,ETCUSDT,15m,5000,-12.17,0.571,82,-1627.4,-1.14,0.814,16,False,"{""er_thresh"": 0.3, ""atr_mult"": 3.5, ""don_len"": 15, ""chand_len"": 18}"
+2026-06-17 05:43,ETCUSDT,15m,5000,-12.17,0.571,82,-1627.4,-1.14,0.814,16,False,"{""er_thresh"": 0.3, ""atr_mult"": 3.5, ""don_len"": 15, ""chand_len"": 18}"
