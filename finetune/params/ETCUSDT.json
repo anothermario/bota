@@ -2,14 +2,14 @@
   "er_len": 20,
   "kama_fast": 2,
   "kama_slow": 30,
-  "er_thresh": 0.30,
+  "er_thresh": 0.3,
   "use_adx": true,
   "adx_len": 14,
   "adx_thresh": 20.0,
-  "don_len": 20,
+  "don_len": 15,
   "atr_len": 14,
-  "atr_mult": 3.0,
-  "chand_len": 22,
+  "atr_mult": 3.5,
+  "chand_len": 18,
   "risk_pct": 1.0,
   "allow_short": true
 }
