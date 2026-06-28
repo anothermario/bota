@@ -110,3 +110,4 @@ timestamp,symbol,interval,data_bars,live_net_pct,live_pf,live_trades,live_max_dd
 2026-06-27 16:27,BTCUSDT,15m,5000,-7.29,0.693,66,-835.16,-6.96,0.375,26,False,"{""er_thresh"": 0.35, ""atr_mult"": 3.5, ""don_len"": 30, ""chand_len"": 22}"
 2026-06-27 20:27,BTCUSDT,15m,5000,-7.29,0.693,66,-835.18,-6.96,0.375,26,False,"{""er_thresh"": 0.35, ""atr_mult"": 3.5, ""don_len"": 30, ""chand_len"": 22}"
 2026-06-28 00:53,BTCUSDT,15m,5000,-7.32,0.692,66,-834.88,-6.96,0.375,26,False,"{""er_thresh"": 0.35, ""atr_mult"": 3.5, ""don_len"": 30, ""chand_len"": 22}"
+2026-06-28 05:33,BTCUSDT,15m,5000,-6.61,0.715,65,-841.3,-6.96,0.375,26,False,"{""er_thresh"": 0.35, ""atr_mult"": 3.5, ""don_len"": 30, ""chand_len"": 22}"
