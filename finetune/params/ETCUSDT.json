@@ -2,7 +2,7 @@
   "er_len": 20,
   "kama_fast": 2,
   "kama_slow": 30,
-  "er_thresh": 0.3,
+  "er_thresh": 0.25,
   "use_adx": true,
   "adx_len": 14,
   "adx_thresh": 20.0,
