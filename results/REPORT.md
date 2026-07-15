@@ -1,9 +1,9 @@
 # Finetune index -- 15m
 
-_Last run (UTC): 2026-07-15 17:16_
+_Last run (UTC): 2026-07-15 20:59_
 
 | symbol | bars | live net% | live PF | OOS net% | OOS PF | trades | accepted | report |
 |---|---|---|---|---|---|---|---|---|
-| BTCUSDT | 5000 | -7.95 | 0.673 | -4.74 | 0.358 | 22 | False | [BTCUSDT](BTCUSDT/REPORT.md) |
-| ETHUSDT | 5000 | -16.57 | 0.509 | -8.84 | 0.267 | 37 | False | [ETHUSDT](ETHUSDT/REPORT.md) |
-| ETCUSDT | 5000 | -12.68 | 0.498 | -5.5 | 0.27 | 16 | False | [ETCUSDT](ETCUSDT/REPORT.md) |
+| BTCUSDT | 5000 | -7.95 | 0.673 | -4.78 | 0.352 | 21 | False | [BTCUSDT](BTCUSDT/REPORT.md) |
+| ETHUSDT | 5000 | -15.75 | 0.524 | -9.41 | 0.215 | 36 | False | [ETHUSDT](ETHUSDT/REPORT.md) |
+| ETCUSDT | 5000 | -12.44 | 0.504 | -4.33 | 0.338 | 16 | False | [ETCUSDT](ETCUSDT/REPORT.md) |
