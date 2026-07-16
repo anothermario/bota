@@ -1,6 +1,6 @@
 # Finetune report -- ETHUSDT 15m
 
-_Last run (UTC): 2026-07-16 13:47_
+_Last run (UTC): 2026-07-16 17:14_
 
 ## Current params (live)
 
@@ -24,7 +24,7 @@ _Last run (UTC): 2026-07-16 13:47_
 
 ## Latest cycle
 
-- Current-params net profit (full sample): **-15.97%**, PF 0.517, 95 trades, max DD -1638.27
+- Current-params net profit (full sample): **-16.74%**, PF 0.505, 96 trades, max DD -1714.22
 - Optimizer out-of-sample: net **-9.6%**, PF 0.213, 36 trades
 - Decision: **kept current params**
 
@@ -34,7 +34,6 @@ _Last run (UTC): 2026-07-16 13:47_
 
 | time (UTC) | data bars | live net% | live PF | OOS net% | OOS PF | accepted |
 |---|---|---|---|---|---|---|
-| 2026-07-15 02:22 | 5000 | -15.6 | 0.526 | -8.57 | 0.272 | False |
 | 2026-07-15 06:12 | 5000 | -15.59 | 0.526 | -8.61 | 0.27 | False |
 | 2026-07-15 10:01 | 5000 | -15.59 | 0.526 | -8.43 | 0.275 | False |
 | 2026-07-15 13:41 | 5000 | -16.21 | 0.515 | -8.53 | 0.274 | False |
@@ -44,3 +43,4 @@ _Last run (UTC): 2026-07-16 13:47_
 | 2026-07-16 06:16 | 5000 | -16.13 | 0.514 | -9.42 | 0.215 | False |
 | 2026-07-16 10:07 | 5000 | -16.11 | 0.514 | -9.41 | 0.215 | False |
 | 2026-07-16 13:47 | 5000 | -15.97 | 0.517 | -9.6 | 0.213 | False |
+| 2026-07-16 17:14 | 5000 | -16.74 | 0.505 | -9.6 | 0.213 | False |
