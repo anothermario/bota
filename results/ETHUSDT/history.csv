@@ -246,3 +246,4 @@ timestamp,symbol,interval,data_bars,live_net_pct,live_pf,live_trades,live_max_dd
 2026-07-20 14:03,ETHUSDT,15m,5000,-17.18,0.494,94,-1931.23,-12.1,0.112,31,False,"{""er_thresh"": 0.25, ""atr_mult"": 3.5, ""don_len"": 30, ""chand_len"": 18}"
 2026-07-20 18:01,ETHUSDT,15m,5000,-17.88,0.483,95,-1917.47,-11.45,0.119,30,False,"{""er_thresh"": 0.25, ""atr_mult"": 3.5, ""don_len"": 30, ""chand_len"": 18}"
 2026-07-20 21:11,ETHUSDT,15m,5000,-17.84,0.483,95,-1918.39,-11.44,0.119,30,False,"{""er_thresh"": 0.25, ""atr_mult"": 3.5, ""don_len"": 30, ""chand_len"": 18}"
+2026-07-21 02:34,ETHUSDT,15m,5000,-17.51,0.49,95,-1964.55,-11.54,0.118,30,False,"{""er_thresh"": 0.25, ""atr_mult"": 3.5, ""don_len"": 30, ""chand_len"": 18}"
