@@ -363,3 +363,4 @@ timestamp,symbol,interval,data_bars,live_net_pct,live_pf,live_trades,live_max_dd
 2026-08-09 04:29,ETCUSDT,15m,5000,-13.96,0.449,60,-1496.74,-1.74,0.733,16,False,"{""er_thresh"": 0.3, ""atr_mult"": 3.5, ""don_len"": 15, ""chand_len"": 22}"
 2026-08-09 08:15,ETCUSDT,15m,5000,-13.96,0.449,60,-1496.74,-1.83,0.718,15,False,"{""er_thresh"": 0.3, ""atr_mult"": 3.5, ""don_len"": 15, ""chand_len"": 22}"
 2026-08-09 12:11,ETCUSDT,15m,5000,-13.96,0.449,60,-1496.73,-1.83,0.719,15,False,"{""er_thresh"": 0.3, ""atr_mult"": 3.5, ""don_len"": 15, ""chand_len"": 22}"
+2026-08-09 16:09,ETCUSDT,15m,5000,-13.98,0.448,60,-1496.48,-2.9,0.63,17,False,"{""er_thresh"": 0.25, ""atr_mult"": 3.5, ""don_len"": 15, ""chand_len"": 26}"
