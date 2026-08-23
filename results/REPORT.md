@@ -1,6 +1,6 @@
 # Finetune index -- 15m
 
-_Last run (UTC): 2026-08-23 16:05_
+_Last run (UTC): 2026-08-23 20:04_
 
 | symbol | bars | live net% | live PF | OOS net% | OOS PF | trades | accepted | report |
 |---|---|---|---|---|---|---|---|---|
