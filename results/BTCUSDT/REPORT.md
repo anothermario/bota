@@ -1,6 +1,6 @@
 # Finetune report -- BTCUSDT 15m
 
-_Last run (UTC): 2026-09-12 20:10_
+_Last run (UTC): 2026-09-13 00:34_
 
 ## Current params (live)
 
@@ -24,8 +24,8 @@ _Last run (UTC): 2026-09-12 20:10_
 
 ## Latest cycle
 
-- Current-params net profit (full sample): **-7.2%**, PF 0.572, 62 trades, max DD -743.33
-- Optimizer out-of-sample: net **-3.85%**, PF 0.443, 15 trades
+- Current-params net profit (full sample): **-7.4%**, PF 0.564, 63 trades, max DD -764.16
+- Optimizer out-of-sample: net **-4.12%**, PF 0.419, 15 trades
 - Decision: **kept current params**
 
 ![equity curve](equity_curve.png)
@@ -34,7 +34,6 @@ _Last run (UTC): 2026-09-12 20:10_
 
 | time (UTC) | data bars | live net% | live PF | OOS net% | OOS PF | accepted |
 |---|---|---|---|---|---|---|
-| 2026-09-11 08:15 | 5000 | -8.48 | 0.525 | -3.71 | 0.449 | False |
 | 2026-09-11 12:17 | 5000 | -7.67 | 0.552 | -4.44 | 0.403 | False |
 | 2026-09-11 16:12 | 5000 | -7.94 | 0.544 | -5.54 | 0.35 | False |
 | 2026-09-11 20:11 | 5000 | -7.34 | 0.565 | -4.54 | 0.399 | False |
@@ -44,3 +43,4 @@ _Last run (UTC): 2026-09-12 20:10_
 | 2026-09-12 12:14 | 5000 | -7.16 | 0.572 | -3.81 | 0.443 | False |
 | 2026-09-12 16:11 | 5000 | -7.16 | 0.572 | -3.81 | 0.443 | False |
 | 2026-09-12 20:10 | 5000 | -7.2 | 0.572 | -3.85 | 0.443 | False |
+| 2026-09-13 00:34 | 5000 | -7.4 | 0.564 | -4.12 | 0.419 | False |
