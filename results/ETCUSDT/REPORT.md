@@ -1,6 +1,6 @@
 # Finetune report -- ETCUSDT 15m
 
-_Last run (UTC): 2026-09-27 00:36_
+_Last run (UTC): 2026-09-27 04:13_
 
 ## Current params (live)
 
@@ -24,8 +24,8 @@ _Last run (UTC): 2026-09-27 00:36_
 
 ## Latest cycle
 
-- Current-params net profit (full sample): **-0.77%**, PF 0.963, 55 trades, max DD -822.57
-- Optimizer out-of-sample: net **-2.46%**, PF 0.638, 17 trades
+- Current-params net profit (full sample): **-1.56%**, PF 0.926, 55 trades, max DD -815.99
+- Optimizer out-of-sample: net **-2.77%**, PF 0.609, 18 trades
 - Decision: **kept current params**
 
 ![equity curve](equity_curve.png)
@@ -34,7 +34,6 @@ _Last run (UTC): 2026-09-27 00:36_
 
 | time (UTC) | data bars | live net% | live PF | OOS net% | OOS PF | accepted |
 |---|---|---|---|---|---|---|
-| 2026-09-25 12:17 | 5000 | -1.45 | 0.931 | -4.12 | 0.507 | False |
 | 2026-09-25 16:13 | 5000 | -2.22 | 0.897 | -4.12 | 0.507 | False |
 | 2026-09-25 20:10 | 5000 | -1.45 | 0.931 | -4.12 | 0.507 | False |
 | 2026-09-26 00:30 | 5000 | -1.45 | 0.931 | -4.12 | 0.507 | False |
@@ -44,3 +43,4 @@ _Last run (UTC): 2026-09-27 00:36_
 | 2026-09-26 16:12 | 5000 | -0.89 | 0.956 | -3.54 | 0.546 | False |
 | 2026-09-26 20:10 | 5000 | -0.89 | 0.956 | -2.61 | 0.622 | False |
 | 2026-09-27 00:36 | 5000 | -0.77 | 0.963 | -2.46 | 0.638 | False |
+| 2026-09-27 04:13 | 5000 | -1.56 | 0.926 | -2.77 | 0.609 | False |
