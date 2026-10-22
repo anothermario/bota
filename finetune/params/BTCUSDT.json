@@ -8,8 +8,8 @@
   "adx_thresh": 20.0,
   "don_len": 30,
   "atr_len": 14,
-  "atr_mult": 3.5,
-  "chand_len": 22,
+  "atr_mult": 3.0,
+  "chand_len": 18,
   "risk_pct": 1.0,
   "allow_short": true
 }
