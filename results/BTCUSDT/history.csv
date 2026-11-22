@@ -987,3 +987,4 @@ timestamp,symbol,interval,data_bars,live_net_pct,live_pf,live_trades,live_max_dd
 2026-11-21 16:07,BTCUSDT,15m,5000,-7.87,0.661,71,-1143.29,-0.09,0.991,18,False,"{""er_thresh"": 0.35, ""atr_mult"": 3.5, ""don_len"": 15, ""chand_len"": 26}"
 2026-11-21 20:06,BTCUSDT,15m,5000,-7.85,0.662,71,-1140.9,0.86,1.125,17,True,"{""er_thresh"": 0.35, ""atr_mult"": 3.5, ""don_len"": 15, ""chand_len"": 26}"
 2026-11-22 00:20,BTCUSDT,15m,5000,-7.01,0.697,72,-1137.44,2.71,1.443,17,True,"{""er_thresh"": 0.35, ""atr_mult"": 3.5, ""don_len"": 15, ""chand_len"": 26}"
+2026-11-22 04:08,BTCUSDT,15m,5000,-6.61,0.711,71,-1095.73,2.67,1.443,17,True,"{""er_thresh"": 0.35, ""atr_mult"": 3.5, ""don_len"": 15, ""chand_len"": 26}"
